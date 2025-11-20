@@ -1,3 +1,5 @@
+import { Application } from "express";
+
 export type booking_status = 'pending' | 'confirmed' | 'cancelled' | 'completed';
 export type payment_status = 'pending' | 'paid' | 'failed';
 
@@ -13,3 +15,5 @@ export interface Bookings{
      created_at: Date
      updated_at: Date
 }
+
+export type NewBooking = Omit<Bookings , 'booking_id' | 'created_at'| 'updated_at' >;

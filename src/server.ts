@@ -1,9 +1,10 @@
-import { Router } from "express";
-import {register, login} from '../controllers/authController'
+import app from "./app";
+import dotenv from "dotenv";
 
-const router = Router();
-router.post('/auth/register', register)
-router.post('/auth/login', login)
+dotenv.config(); 
 
+const PORT = process.env.PORT || 3000; // fallback to 3000
 
-export default router;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
