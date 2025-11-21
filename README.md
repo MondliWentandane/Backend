@@ -5,3 +5,5 @@ npm install --save-dev typescript ts-node nodemon @types/node @types/express @ty
 npm install --save-dev @types/bcryptjs - to install brcyptjs for user authentication
 
 npm install pg dotenv express
+
+npx ts-node src/server.ts
