@@ -1,109 +1,86 @@
-import { Request, Response } from "express";
-import * as UserService from "../service/userService";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
+
+import {supabase } from "../config/supabase"
+import { Response,Request } from "express"
+
+//Email and password sign up 
+export const signUp = async (req:Request,res:Response)=>{
+  const {email,password,name, phone_number} = req.body;
+
+  const{data,error} = await supabase.auth.signUp({
+    email,password,
+    options:{
+      data:{name,phone_number},
+    },
+  });
 
 
-export const register = async (req: Request, res: Response) => {
-  const { name, email, phone_number, role, password_hash } = req.body;
-
-  if (!email || !password_hash || !name || !phone_number || !role) {
-    return res.status(400).json({
-      message: "Name, email, phone number, role, and password are required",
-    });
-  }
-
-  if (!["admin", "customer"].includes(role)) {
-    return res.status(400).json({ message: "Invalid role" });
-  }
-
-  try {
-    const existingUser = await UserService.findUserByEmail(email);
-
-    if (existingUser) {
-      return res.status(409).json({ message: "Email is already in use" });
-    }
-
-
-    const hashedPassword = await bcrypt.hash(password_hash, 10);
-
-  
-    const user = await UserService.createUsers({
-      name,
-      email,
-      phone_number,
-      role,
-      passsword_hash: hashedPassword,
-    });
-
-    return res.status(201).json({
-      message: "User registered successfully",
-      userId: user.user_id,
-    });
-  } catch (error) {
-    console.error("Register error:", error);
-    return res.status(500).json({ message: "Error registering the user" });
-  }
+  if (error) return res.status(400).json({error:error.message})
+    res.json({message:"User signed up succesfully", user:data.user});
 };
 
 
-export const login = async (req: Request, res: Response) => {
-  const { email, password_hash } = req.body;
+//email and password sign in
+export const signIn = async (req:Request, res:Response)=>{
 
-  if (!email || !password_hash) {
-    return res
-      .status(400)
-      .json({ message: "Email and password are required" });
-  }
+  const { email,password } = req.body;
 
-  try {
-    const user = await UserService.findUserByEmail(email);
+  const {data,error} = await supabase.auth.signInWithPassword({
+    email,password,
+  });
 
-    if (!user) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
+  if(error) return res.status(400).json({error:error.message});
 
-    const isMatch = await bcrypt.compare(password_hash, user.passsword_hash);
+  res.json({
+    message:"Sign in successful",
+    access_token:data.session?.access_token,
+    refresh_token:data.session?.refresh_token,
+    user:data.user,
+  });
+}
 
-    if (!isMatch) {
-      return res.status(401).json({ message: "Invalid password" });
-    }
+// Google Oauth sign in/signup
+export const signInWithGoogle = async(req:Request,res:Response)=>{
 
-    const payload = {
-      userId: user.user_id,
-      email: user.email,
-      role: user.role,
-    };
+  const {redirectTo } = req.body; // optional redirect after login
 
-    const token = jwt.sign(payload, process.env.JWT_SECRET!, {
-      expiresIn: "1h",
-    });
+  const {data,error} = await supabase.auth.signInWithOAuth({
+    provider:"google",
+    options:{redirectTo},
+  });
 
-    return res.status(200).json({
-      message: "Login successful",
-      token,
-      user: {
-        user_id: user.user_id,
-        name: user.name,
-        email: user.email,
-        phone_number: user.phone_number,
-        role: user.role,
-      },
-    });
-  } catch (error) {
-    console.error("Login error:", error);
-    return res.status(500).json({ message: "Error logging in" });
-  }
+  if(error) return res.status(400).json({error:error.message});
+
+  res.json({
+    message:"Google OAuth initiated",
+    url:data.url
+  });
+
 };
 
+//Forgotten password(send reset email)
+export const forgottenPassword = async(req:Request,res:Response)=>{
 
-export const logout = async (req: Request, res: Response) => {
-  try {
-    return res.status(200).json({
-      message: "Logged out successfully. Please remove the token on the client.",
-    });
-  } catch (error) {
-    console.error("Logout error:", error);
-    return res.status(500).json({ message: "Error logging out" });
-  }
+  const{email, redirectTo} = req.body;
+
+  const{data,error} =await supabase.auth.resetPasswordForEmail(email,{
+    redirectTo,//  Frontend reset page
+  });
+
+  if(error) res.status(400).json({error:error.message})
+    res.json({message:"Password reset email was sent",data});
 };
+
+// Reset password from email link 
+export const resetPassword = async(req:Request, res:Response)=>{
+
+  const { access_token, new_password } = req.body;
+
+  const { data, error } = await supabase.auth.updateUser(
+    { password: new_password },
+    { accessToken: access_token } as any
+  );
+
+  if (error) return res.status(400).json({ error: error.message });
+
+  res.json({ message: "Password updated successfully", user: data.user });
+}
