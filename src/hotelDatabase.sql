@@ -46,6 +46,8 @@ CREATE TABLE Bookings (
     room_id INT REFERENCES Rooms(room_id) ON DELETE CASCADE ON UPDATE CASCADE,
     check_in_date DATE NOT NULL,
     check_out_date DATE NOT NULL,
+    number_of_guests INT NOT NULL DEFAULT 1 CHECK (number_of_guests > 0 AND number_of_guests <= 20),
+    number_of_rooms INT NOT NULL DEFAULT 1 CHECK (number_of_rooms > 0 AND number_of_rooms <= 10),
     status booking_status NOT NULL DEFAULT 'pending',
     total_price NUMERIC(10,2) NOT NULL,
     payment_status payment_status NOT NULL DEFAULT 'pending',
@@ -92,5 +94,27 @@ CREATE TABLE Favourites (
     hotel_id INT REFERENCES Hotels(hotel_id) ON DELETE CASCADE ON UPDATE CASCADE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE (user_id, hotel_id)
+);
+
+CREATE TYPE notification_type AS ENUM (
+    'booking_confirmation',
+    'booking_update',
+    'booking_cancelled',
+    'payment_received',
+    'payment_failed',
+    'promotion',
+    'review_request',
+    'system'
+);
+
+CREATE TABLE Notifications (
+    notification_id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES Users(user_id) ON DELETE CASCADE ON UPDATE CASCADE,
+    type notification_type NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    is_read BOOLEAN NOT NULL DEFAULT false,
+    related_booking_id INT REFERENCES Bookings(booking_id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
