@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsc",
     "start": "ts-node src/server.ts",
-    "dev": "nodemon --exec ts-node src/server.ts"
+    "dev": "nodemon --exec ts-node src/server.ts",
+    "test": "node test-api.js",
+    "test-db": "node test-db-connection.js"
   },
   "keywords": [],
   "author": "",
