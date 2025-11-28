@@ -1,5 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 
+// Debug: Log all environment variables
+console.log('🔍 Environment Check:');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('All env keys:', Object.keys(process.env).sort().join(', '));
+console.log('SUPABASE_URL exists?', !!process.env.SUPABASE_URL);
+console.log('SUPABASE_SERVICE_ROLE_KEY exists?', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -11,3 +18,4 @@ if (!supabaseUrl || !supabaseServiceKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseServiceKey);
+console.log('✅ Supabase client created successfully');

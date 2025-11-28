@@ -1,10 +1,13 @@
 import app from "./app";
-import dotenv from "dotenv";
 import { verifyEmailConfig } from "./config/email";
 
-dotenv.config(); 
+// Only load dotenv in development (Railway injects env vars automatically)
+if (process.env.NODE_ENV !== "production") {
+  const dotenv = require("dotenv");
+  dotenv.config();
+}
 
-const PORT = process.env.PORT || 3000; // fallback to 3000
+const PORT = process.env.PORT || 3000;
 
 // Verify email configuration on startup
 verifyEmailConfig().catch(() => {
@@ -13,5 +16,6 @@ verifyEmailConfig().catch(() => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
 });
