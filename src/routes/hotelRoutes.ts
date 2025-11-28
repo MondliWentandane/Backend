@@ -9,6 +9,7 @@ import {
   deleteHotelPhoto,
 } from "../controllers/hotelController";
 import { verifyAuth, requireAdmin } from "../middleware/userMiddleware";
+import { uploadSingle, handleUploadError } from "../middleware/uploadMiddleware";
 
 const router = Router();
 
@@ -22,7 +23,7 @@ router.put("/:id", verifyAuth, requireAdmin, updateHotel); // PUT /api/hotels/:i
 router.delete("/:id", verifyAuth, requireAdmin, deleteHotel); // DELETE /api/hotels/:id - Delete hotel
 
 // Hotel photos management (Admin only)
-router.post("/:id/photos", verifyAuth, requireAdmin, addHotelPhoto); // POST /api/hotels/:id/photos - Add photo
+router.post("/:id/photos", verifyAuth, requireAdmin, uploadSingle, handleUploadError, addHotelPhoto); // POST /api/hotels/:id/photos - Add photo (supports file upload or photo_url)
 router.delete("/:id/photos/:photoId", verifyAuth, requireAdmin, deleteHotelPhoto); // DELETE /api/hotels/:id/photos/:photoId - Delete photo
 
 export default router;

@@ -12,6 +12,7 @@ import {
   checkRoomAvailability,
 } from "../controllers/roomController";
 import { verifyAuth, requireAdmin } from "../middleware/userMiddleware";
+import { uploadSingle, handleUploadError } from "../middleware/uploadMiddleware";
 
 const router = Router();
 
@@ -28,7 +29,7 @@ router.delete("/:id", verifyAuth, requireAdmin, deleteRoom); // DELETE /api/room
 router.patch("/:id/availability", verifyAuth, requireAdmin, updateRoomAvailability); // PATCH /api/rooms/:id/availability - Update room availability
 
 // Room photos management (Admin only)
-router.post("/:id/photos", verifyAuth, requireAdmin, addRoomPhoto); // POST /api/rooms/:id/photos - Add photo
+router.post("/:id/photos", verifyAuth, requireAdmin, uploadSingle, handleUploadError, addRoomPhoto); // POST /api/rooms/:id/photos - Add photo (supports file upload or photo_url)
 router.delete("/:id/photos/:photoId", verifyAuth, requireAdmin, deleteRoomPhoto); // DELETE /api/rooms/:id/photos/:photoId - Delete photo
 
 export default router;
