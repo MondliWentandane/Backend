@@ -1,12 +1,26 @@
 import { Router } from "express";
-import { createOrder, captureOrder } from "../controllers/paypalController";
+import { 
+  createOrder, 
+  captureOrder, 
+  getPaymentByBookingId,
+  getMyPayments,
+  getPaymentByTransactionId,
+  refundPayment
+} from "../controllers/paypalController";
+import { verifyAuth, requireAdmin } from "../middleware/userMiddleware";
 
 const router = Router();
 
-// Create PayPal order
+// Payment creation and capture (public endpoints for PayPal webhooks)
 router.post("/create-order", createOrder);
-
-// Capture PayPal order and record payment in the database
 router.post("/capture-order/:orderId", captureOrder);
+
+// Payment history and retrieval (authenticated)
+router.get("/booking/:bookingId", verifyAuth, getPaymentByBookingId); // GET /api/payments/booking/:bookingId
+router.get("/my-payments", verifyAuth, getMyPayments); // GET /api/payments/my-payments
+router.get("/transaction/:transactionId", verifyAuth, getPaymentByTransactionId); // GET /api/payments/transaction/:transactionId
+
+// Refund (authenticated - user can refund own, admin can refund any)
+router.post("/:paymentId/refund", verifyAuth, refundPayment); // POST /api/payments/:paymentId/refund
 
 export default router;

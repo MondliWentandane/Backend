@@ -22,3 +22,5 @@ router.delete("/hotel/:hotelId", verifyAuth, removeFromFavouritesByHotel); // DE
 export default router;
 
 
+
+

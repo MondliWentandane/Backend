@@ -23,3 +23,5 @@ router.post("/", verifyAuth, createNotification); // POST /api/notifications - C
 
 export default router;
 
+
+
