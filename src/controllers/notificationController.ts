@@ -87,7 +87,7 @@ export const getMyNotifications = async (req: Request, res: Response) => {
       },
     });
   } catch (err: any) {
-    console.error("Error fetching notifications:", err);
+    console.error("Error fetching notifications:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to fetch notifications",
@@ -145,7 +145,7 @@ export const getNotificationById = async (req: Request, res: Response) => {
       data: notification,
     });
   } catch (err: any) {
-    console.error("Error fetching notification:", err);
+    console.error("Error fetching notification:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to fetch notification",
@@ -197,7 +197,7 @@ export const markAsRead = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error marking notification as read:", err);
+    console.error("Error marking notification as read:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to mark notification as read",
@@ -226,7 +226,7 @@ export const markAllAsRead = async (req: Request, res: Response) => {
       count: result.rows.length,
     });
   } catch (err: any) {
-    console.error("Error marking all notifications as read:", err);
+    console.error("Error marking all notifications as read:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to mark all notifications as read",
@@ -272,7 +272,7 @@ export const deleteNotification = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error deleting notification:", err);
+    console.error("Error deleting notification:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to delete notification",
@@ -362,7 +362,7 @@ export const createNotification = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error creating notification:", err);
+    console.error("Error creating notification:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to create notification",
@@ -390,7 +390,7 @@ export const getUnreadCount = async (req: Request, res: Response) => {
       unread_count: unreadCount,
     });
   } catch (err: any) {
-    console.error("Error fetching unread count:", err);
+    console.error("Error fetching unread count:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to fetch unread count",
@@ -398,4 +398,6 @@ export const getUnreadCount = async (req: Request, res: Response) => {
     });
   }
 };
+
+
 

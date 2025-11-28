@@ -1,5 +1,11 @@
 import { Request, Response } from "express";
 import pool from "../config/database";
+import { 
+  validatePositiveInteger, 
+  validatePaginationParams,
+  validateStringLength,
+  validateEnum
+} from "../utils/validation";
 
 // CREATE REVIEW (Authenticated users)
 export const createReview = async (req: Request, res: Response) => {
@@ -7,24 +13,51 @@ export const createReview = async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { hotel_id, rating, comment } = req.body;
 
-    // Validation
-    if (!hotel_id) {
+    // Validate hotel_id
+    const hotelIdValidation = validatePositiveInteger(hotel_id, "Hotel ID");
+    if (!hotelIdValidation.valid) {
       return res.status(400).json({
         success: false,
-        error: "hotel_id is required",
+        error: hotelIdValidation.error
       });
     }
 
-    // Validate rating if provided
-    if (rating !== undefined && (rating < 1 || rating > 5)) {
+    // Validate rating
+    if (rating === undefined || rating === null) {
+      return res.status(400).json({
+        success: false,
+        error: "Rating is required"
+      });
+    }
+
+    const ratingValidation = validatePositiveInteger(rating, "Rating");
+    if (!ratingValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: ratingValidation.error
+      });
+    }
+
+    if (ratingValidation.parsed! < 1 || ratingValidation.parsed! > 5) {
       return res.status(400).json({
         success: false,
         error: "Rating must be between 1 and 5",
       });
     }
 
+    // Validate comment if provided
+    if (comment !== undefined && comment !== null) {
+      const commentValidation = validateStringLength(comment, "Comment", 0, 2000);
+      if (!commentValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: commentValidation.error
+        });
+      }
+    }
+
     // Check if hotel exists
-    const hotelCheck = await pool.query("SELECT * FROM Hotels WHERE hotel_id = $1", [hotel_id]);
+    const hotelCheck = await pool.query("SELECT * FROM Hotels WHERE hotel_id = $1", [hotelIdValidation.parsed!]);
     if (hotelCheck.rows.length === 0) {
       return res.status(404).json({
         success: false,
@@ -35,7 +68,7 @@ export const createReview = async (req: Request, res: Response) => {
     // Check if user already reviewed this hotel
     const existingReview = await pool.query(
       "SELECT * FROM Reviews WHERE user_id = $1 AND hotel_id = $2",
-      [user.user_id, hotel_id]
+      [user.user_id, hotelIdValidation.parsed!]
     );
 
     if (existingReview.rows.length > 0) {
@@ -54,9 +87,9 @@ export const createReview = async (req: Request, res: Response) => {
 
     const result = await pool.query(insertQuery, [
       user.user_id,
-      hotel_id,
-      rating || null,
-      comment || null,
+      hotelIdValidation.parsed!,
+      ratingValidation.parsed!,
+      comment !== undefined && comment !== null ? validateStringLength(comment, "Comment", 0, 2000).trimmed : null,
     ]);
 
     res.status(201).json({
@@ -65,7 +98,7 @@ export const createReview = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error creating review:", err);
+    console.error("Error creating review:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to create review",
@@ -80,8 +113,43 @@ export const getReviewsByHotel = async (req: Request, res: Response) => {
     const { hotelId } = req.params;
     const { limit, offset, minRating } = req.query;
 
+    // Validate hotel ID
+    const hotelIdValidation = validatePositiveInteger(hotelId, "Hotel ID");
+    if (!hotelIdValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: hotelIdValidation.error
+      });
+    }
+
+    // Validate pagination params
+    const paginationValidation = validatePaginationParams(limit, offset);
+    if (!paginationValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: paginationValidation.error
+      });
+    }
+
+    // Validate minRating if provided
+    if (minRating !== undefined) {
+      const minRatingValidation = validatePositiveInteger(minRating, "Minimum rating");
+      if (!minRatingValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: minRatingValidation.error
+        });
+      }
+      if (minRatingValidation.parsed! < 1 || minRatingValidation.parsed! > 5) {
+        return res.status(400).json({
+          success: false,
+          error: "Minimum rating must be between 1 and 5"
+        });
+      }
+    }
+
     // Check if hotel exists
-    const hotelCheck = await pool.query("SELECT * FROM Hotels WHERE hotel_id = $1", [hotelId]);
+    const hotelCheck = await pool.query("SELECT * FROM Hotels WHERE hotel_id = $1", [hotelIdValidation.parsed!]);
     if (hotelCheck.rows.length === 0) {
       return res.status(404).json({
         success: false,
@@ -105,21 +173,22 @@ export const getReviewsByHotel = async (req: Request, res: Response) => {
       WHERE r.hotel_id = $1
     `;
 
-    const params: any[] = [hotelId];
+    const params: any[] = [hotelIdValidation.parsed!];
     let paramCount = 2;
 
     // Filter by minimum rating
-    if (minRating) {
+    if (minRating !== undefined) {
+      const minRatingValidation = validatePositiveInteger(minRating, "Minimum rating");
       query += ` AND r.rating >= $${paramCount}`;
-      params.push(parseInt(minRating as string));
+      params.push(minRatingValidation.parsed!);
       paramCount++;
     }
 
     query += ` ORDER BY r.created_at DESC`;
 
     // Add pagination
-    const limitValue = limit ? parseInt(limit as string) : 20;
-    const offsetValue = offset ? parseInt(offset as string) : 0;
+    const limitValue = paginationValidation.limitValue!;
+    const offsetValue = paginationValidation.offsetValue!;
 
     query += ` LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
     params.push(limitValue, offsetValue);
@@ -153,7 +222,7 @@ export const getReviewsByHotel = async (req: Request, res: Response) => {
       },
     });
   } catch (err: any) {
-    console.error("Error fetching reviews by hotel:", err);
+    console.error("Error fetching reviews by hotel:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to fetch reviews",
@@ -222,7 +291,7 @@ export const getReviewsByUser = async (req: Request, res: Response) => {
       },
     });
   } catch (err: any) {
-    console.error("Error fetching reviews by user:", err);
+    console.error("Error fetching reviews by user:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to fetch reviews",
@@ -270,7 +339,7 @@ export const getReviewById = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error fetching review:", err);
+    console.error("Error fetching review:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to fetch review",
@@ -286,9 +355,46 @@ export const updateReview = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { rating, comment } = req.body;
 
+    // Validate review ID
+    const reviewIdValidation = validatePositiveInteger(id, "Review ID");
+    if (!reviewIdValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: reviewIdValidation.error
+      });
+    }
+
+    // Validate rating if provided
+    if (rating !== undefined && rating !== null) {
+      const ratingValidation = validatePositiveInteger(rating, "Rating");
+      if (!ratingValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: ratingValidation.error
+        });
+      }
+      if (ratingValidation.parsed! < 1 || ratingValidation.parsed! > 5) {
+        return res.status(400).json({
+          success: false,
+          error: "Rating must be between 1 and 5",
+        });
+      }
+    }
+
+    // Validate comment if provided
+    if (comment !== undefined && comment !== null) {
+      const commentValidation = validateStringLength(comment, "Comment", 0, 2000);
+      if (!commentValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: commentValidation.error
+        });
+      }
+    }
+
     // Check if review exists
     const checkQuery = "SELECT * FROM Reviews WHERE review_id = $1";
-    const checkResult = await pool.query(checkQuery, [id]);
+    const checkResult = await pool.query(checkQuery, [reviewIdValidation.parsed!]);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({
@@ -338,7 +444,7 @@ export const updateReview = async (req: Request, res: Response) => {
     }
 
     updates.push(`updated_at = NOW()`);
-    params.push(id);
+    params.push(reviewIdValidation.parsed!);
 
     const updateQuery = `
       UPDATE Reviews
@@ -355,7 +461,7 @@ export const updateReview = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error updating review:", err);
+    console.error("Error updating review:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to update review",
@@ -370,9 +476,18 @@ export const deleteReview = async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { id } = req.params;
 
+    // Validate review ID
+    const reviewIdValidation = validatePositiveInteger(id, "Review ID");
+    if (!reviewIdValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: reviewIdValidation.error
+      });
+    }
+
     // Check if review exists
     const checkQuery = "SELECT * FROM Reviews WHERE review_id = $1";
-    const checkResult = await pool.query(checkQuery, [id]);
+    const checkResult = await pool.query(checkQuery, [reviewIdValidation.parsed!]);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({
@@ -393,7 +508,7 @@ export const deleteReview = async (req: Request, res: Response) => {
 
     // Delete review
     const deleteQuery = "DELETE FROM Reviews WHERE review_id = $1 RETURNING *";
-    const result = await pool.query(deleteQuery, [id]);
+    const result = await pool.query(deleteQuery, [reviewIdValidation.parsed!]);
 
     res.json({
       success: true,
@@ -401,7 +516,7 @@ export const deleteReview = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error deleting review:", err);
+    console.error("Error deleting review:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to delete review",

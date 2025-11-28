@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import pool from "../config/database";
+import { validateName, validatePhoneNumber, validatePositiveInteger } from "../utils/validation";
 
 // GET USER PROFILE (Authenticated - own profile)
 export const getMyProfile = async (req: Request, res: Response) => {
@@ -33,7 +34,7 @@ export const getMyProfile = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error fetching profile:", err);
+    console.error("Error fetching profile:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to fetch profile",
@@ -49,8 +50,21 @@ export const updateProfile = async (req: Request, res: Response) => {
     const { userId } = req.params; // Optional: for admin to update other users
     const { name, phone_number } = req.body;
 
+    // Validate userId parameter if provided (for admin)
+    let parsedUserId: number | null = null;
+    if (userId !== undefined) {
+      const userIdValidation = validatePositiveInteger(userId, "User ID");
+      if (!userIdValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: userIdValidation.error
+        });
+      }
+      parsedUserId = userIdValidation.parsed!;
+    }
+
     // Determine which user to update
-    const targetUserId = userId && user.role === "admin" ? parseInt(userId) : user.user_id;
+    const targetUserId = parsedUserId && user.role === "admin" ? parsedUserId : user.user_id;
 
     // Check permissions (user can only update their own profile, admin can update any)
     if (user.role !== "admin" && targetUserId !== user.user_id) {
@@ -73,27 +87,45 @@ export const updateProfile = async (req: Request, res: Response) => {
 
     const existingUser = checkResult.rows[0];
 
-    // Validation
-    if (!name && !phone_number) {
+    // Validation - at least one field must be provided
+    if (name === undefined && phone_number === undefined) {
       return res.status(400).json({
         success: false,
         error: "At least one field (name or phone_number) is required to update",
       });
     }
 
-    // Validate phone number format if provided
-    if (phone_number && phone_number.length < 10) {
-      return res.status(400).json({
-        success: false,
-        error: "Phone number must be at least 10 characters",
-      });
+    // Validate name if provided
+    let trimmedName: string | undefined = undefined;
+    if (name !== undefined) {
+      const nameValidation = validateName(name);
+      if (!nameValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: nameValidation.error
+        });
+      }
+      trimmedName = nameValidation.trimmed;
+    }
+
+    // Validate phone number if provided
+    let trimmedPhone: string | undefined = undefined;
+    if (phone_number !== undefined) {
+      const phoneValidation = validatePhoneNumber(phone_number);
+      if (!phoneValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: phoneValidation.error
+        });
+      }
+      trimmedPhone = phone_number.trim();
     }
 
     // Check if phone number is already taken by another user
-    if (phone_number && phone_number !== existingUser.phone_number) {
+    if (trimmedPhone && trimmedPhone !== existingUser.phone_number) {
       const phoneCheck = await pool.query(
         "SELECT * FROM users WHERE phone_number = $1 AND user_id != $2",
-        [phone_number, targetUserId]
+        [trimmedPhone, targetUserId]
       );
 
       if (phoneCheck.rows.length > 0) {
@@ -109,14 +141,14 @@ export const updateProfile = async (req: Request, res: Response) => {
     const params: any[] = [];
     let paramCount = 1;
 
-    if (name !== undefined) {
+    if (trimmedName !== undefined) {
       updates.push(`name = $${paramCount++}`);
-      params.push(name);
+      params.push(trimmedName);
     }
 
-    if (phone_number !== undefined) {
+    if (trimmedPhone !== undefined) {
       updates.push(`phone_number = $${paramCount++}`);
-      params.push(phone_number);
+      params.push(trimmedPhone);
     }
 
     if (updates.length === 0) {
@@ -147,7 +179,7 @@ export const updateProfile = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error updating profile:", err);
+    console.error("Error updating profile:", err?.message || "Unknown error");
     
     // Handle unique constraint violation for phone_number
     if (err.code === "23505" && err.detail?.includes("phone_number")) {
@@ -171,8 +203,19 @@ export const getUserById = async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { userId } = req.params;
 
+    // Validate userId parameter
+    const userIdValidation = validatePositiveInteger(userId, "User ID");
+    if (!userIdValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: userIdValidation.error
+      });
+    }
+
+    const parsedUserId = userIdValidation.parsed!;
+
     // Check permissions (user can only view their own profile, admin can view any)
-    if (user.role !== "admin" && user.user_id !== parseInt(userId)) {
+    if (user.role !== "admin" && user.user_id !== parsedUserId) {
       return res.status(403).json({
         success: false,
         error: "Access denied. You can only view your own profile.",
@@ -192,7 +235,7 @@ export const getUserById = async (req: Request, res: Response) => {
       WHERE user_id = $1
     `;
 
-    const result = await pool.query(query, [userId]);
+    const result = await pool.query(query, [parsedUserId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -206,7 +249,7 @@ export const getUserById = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error fetching user:", err);
+    console.error("Error fetching user:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to fetch user",

@@ -60,7 +60,7 @@ export const addToFavourites = async (req: Request, res: Response) => {
         error: "Hotel is already in your favourites",
       });
     }
-    console.error("Error adding to favourites:", err);
+    console.error("Error adding to favourites:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to add to favourites",
@@ -106,7 +106,7 @@ export const removeFromFavourites = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error removing from favourites:", err);
+    console.error("Error removing from favourites:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to remove from favourites",
@@ -142,7 +142,7 @@ export const removeFromFavouritesByHotel = async (req: Request, res: Response) =
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error removing from favourites:", err);
+    console.error("Error removing from favourites:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to remove from favourites",
@@ -213,7 +213,7 @@ export const getMyFavourites = async (req: Request, res: Response) => {
       },
     });
   } catch (err: any) {
-    console.error("Error fetching favourites:", err);
+    console.error("Error fetching favourites:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to fetch favourites",
@@ -249,7 +249,7 @@ export const checkFavourite = async (req: Request, res: Response) => {
       data: favouriteCheck.rows.length > 0 ? favouriteCheck.rows[0] : null,
     });
   } catch (err: any) {
-    console.error("Error checking favourite:", err);
+    console.error("Error checking favourite:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to check favourite",
@@ -315,7 +315,7 @@ export const getFavouritesByUser = async (req: Request, res: Response) => {
       },
     });
   } catch (err: any) {
-    console.error("Error fetching favourites by user:", err);
+    console.error("Error fetching favourites by user:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to fetch favourites",
@@ -323,5 +323,7 @@ export const getFavouritesByUser = async (req: Request, res: Response) => {
     });
   }
 };
+
+
 
 
