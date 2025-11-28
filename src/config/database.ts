@@ -19,7 +19,7 @@ const pool = new Pool({
 })
 
 pool.on('error', (err: any) => {
-    console.error('Database pool error:', err.message || err);
+    console.error('Database pool error:', err?.message || "Unknown error");
 });
 
 export const query = (text: string, params?: any[]) => {
@@ -41,7 +41,6 @@ export const testConnection = async () => {
 
 export async function getBookingAmount(booking_id: number): Promise<number | null> {
     try {
-        console.log(`Attempting to fetch total price for booking_id: ${booking_id}`);
         const result = await pool.query("SELECT total_price FROM Bookings WHERE booking_id = $1", [booking_id]);
 
         if (result.rows.length > 0) {
@@ -51,11 +50,11 @@ export async function getBookingAmount(booking_id: number): Promise<number | nul
             if (!isNaN(amountNumber)) {
                 return amountNumber;
             } else {
-                console.error(`Invalid total price format for booking ${booking_id}: ${amountString}`);
+                console.error(`Invalid total price format for booking ${booking_id}`);
             }
         }
-    } catch (error) {
-        console.error("Failed to fetch booking amount:", error);
+    } catch (error: any) {
+        console.error("Failed to fetch booking amount:", error?.message || "Unknown error");
     }
     return null;
 }
@@ -75,8 +74,8 @@ export async function insertPayment(booking_id: number,amount: number,transactio
       return result.rows[0];
     }
     return null;
-  } catch (error) {
-    console.error("Database error inserting payment record:", error);
+  } catch (error: any) {
+    console.error("Database error inserting payment record:", error?.message || "Unknown error");
     throw new Error("Failed to insert payment record.");
   }
 }
@@ -84,8 +83,8 @@ export async function insertPayment(booking_id: number,amount: number,transactio
 export async function updateBookingStatus(booking_id: number, status: string): Promise<void> {
     try {
         await pool.query('UPDATE "Bookings" SET status = $1 WHERE booking_id = $2', [status, booking_id]);
-    } catch (error) {
-        console.error("Database error updating booking status:", error);
+    } catch (error: any) {
+        console.error("Database error updating booking status:", error?.message || "Unknown error");
         throw new Error("Failed to update booking status.");
     }
 }

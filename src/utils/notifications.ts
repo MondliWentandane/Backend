@@ -26,7 +26,7 @@ export const createNotification = async (
 
     return result.rows[0];
   } catch (err: any) {
-    console.error("Error creating notification:", err);
+    console.error("Error creating notification:", err?.message || "Unknown error");
     // Don't throw - notifications are non-critical
     return null;
   }
@@ -71,8 +71,21 @@ export const notifyPaymentReceived = async (user_id: number, booking_id: number,
     user_id,
     'payment_received',
     'Payment Received',
-    `Payment of R ${amount.toFixed(2)} has been received for your booking.`,
+    `Payment of $${amount.toFixed(2)} has been received for your booking.`,
     booking_id
   );
 };
+
+// Helper to create refund notification
+export const notifyRefundReceived = async (user_id: number, booking_id: number, amount: number) => {
+  return createNotification(
+    user_id,
+    'payment_received',
+    'Refund Processed',
+    `A refund of $${Math.abs(amount).toFixed(2)} has been processed for your booking.`,
+    booking_id
+  );
+};
+
+
 
