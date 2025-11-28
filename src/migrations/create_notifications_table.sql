@@ -28,3 +28,5 @@ CREATE INDEX idx_notifications_user_id ON Notifications(user_id);
 CREATE INDEX idx_notifications_is_read ON Notifications(user_id, is_read);
 CREATE INDEX idx_notifications_created_at ON Notifications(created_at DESC);
 
+
+

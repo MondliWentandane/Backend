@@ -12,3 +12,5 @@ ALTER TABLE Bookings
 ALTER COLUMN number_of_guests SET NOT NULL;
 
 
+
+

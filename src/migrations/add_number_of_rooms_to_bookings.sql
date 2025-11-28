@@ -11,3 +11,5 @@ UPDATE Bookings SET number_of_rooms = 1 WHERE number_of_rooms IS NULL;
 ALTER TABLE Bookings 
 ALTER COLUMN number_of_rooms SET NOT NULL;
 
+
+
