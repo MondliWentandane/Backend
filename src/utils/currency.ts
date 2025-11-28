@@ -1,11 +1,11 @@
 // Currency configuration
-export const DEFAULT_CURRENCY = "ZAR"; // South African Rand
-export const CURRENCY_SYMBOL = "R"; // Rand symbol
+export const DEFAULT_CURRENCY = "USD"; // US Dollar
+export const CURRENCY_SYMBOL = "$"; // Dollar symbol
 
 // Format price with currency
 export const formatPrice = (amount: number, currency: string = DEFAULT_CURRENCY): string => {
-  if (currency === "ZAR") {
-    return `R ${amount.toFixed(2)}`;
+  if (currency === "USD") {
+    return `$${amount.toFixed(2)}`;
   }
   return `${currency} ${amount.toFixed(2)}`;
 };
@@ -18,4 +18,6 @@ export const addCurrencyInfo = (price: number, currency: string = DEFAULT_CURREN
     formatted: formatPrice(price, currency),
   };
 };
+
+
 
