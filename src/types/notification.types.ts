@@ -27,3 +27,5 @@ export interface CreateNotificationInput {
     related_booking_id?: number;
 }
 
+
+

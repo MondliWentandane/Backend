@@ -1,4 +1,4 @@
-export type payment_status = 'pending' | 'paid' | 'failed';
+export type payment_status = 'pending' | 'paid' | 'failed' | 'refunded';
 export interface Payments{
     payment_id:number
     booking_id:number
