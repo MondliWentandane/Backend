@@ -2,36 +2,58 @@ import { Request, Response } from "express";
 import { supabase } from "../config/supabase";
 import pool, { query as dbQuery } from "../config/database";
 import bcrypt from "bcryptjs";
+import { validateEmail, validatePassword, validatePhoneNumber, validateName } from "../utils/validation";
 
 // SIGN UP
 export const signUp = async (req: Request, res: Response) => {
   const { email, password, name, phone_number, role } = req.body;
 
-  // Basic validation
-  if (!email || !password || !name || !phone_number) {
+  // Validate email
+  const emailValidation = validateEmail(email);
+  if (!emailValidation.valid) {
     return res.status(400).json({
-      error: "Missing required fields",
-      details: "Please provide: email, password, name, and phone_number",
-      received: { email: !!email, password: !!password, name: !!name, phone_number: !!phone_number }
+      error: emailValidation.error
     });
   }
 
-  // Validate email format
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) {
+  // Validate password
+  const passwordValidation = validatePassword(password);
+  if (!passwordValidation.valid) {
     return res.status(400).json({
-      error: "Invalid email format",
-      details: "Please provide a valid email address"
+      error: passwordValidation.error
     });
   }
 
-  // Validate password length
-  if (password.length < 6) {
+  // Validate name
+  const nameValidation = validateName(name);
+  if (!nameValidation.valid) {
     return res.status(400).json({
-      error: "Password too short",
-      details: "Password must be at least 6 characters long"
+      error: nameValidation.error
     });
   }
+
+  // Validate phone number
+  const phoneValidation = validatePhoneNumber(phone_number);
+  if (!phoneValidation.valid) {
+    return res.status(400).json({
+      error: phoneValidation.error
+    });
+  }
+
+  // Validate role if provided
+  if (role !== undefined && role !== null) {
+    const validRoles = ['admin', 'super_admin', 'branch_admin', 'customer'];
+    if (typeof role !== 'string' || !validRoles.includes(role)) {
+      return res.status(400).json({
+        error: `Invalid role. Must be one of: ${validRoles.join(', ')}`
+      });
+    }
+  }
+
+  // Use trimmed values
+  const trimmedEmail = email.trim();
+  const trimmedName = nameValidation.trimmed!;
+  const trimmedPhone = phone_number.trim();
 
   try {
     // 1. Hash password before storing
@@ -57,10 +79,10 @@ export const signUp = async (req: Request, res: Response) => {
 
     // 2. Create user in Supabase Auth
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: trimmedEmail,
       password,
       options: {
-        data: { name, phone_number, role: role || "customer" },
+        data: { name: trimmedName, phone_number: trimmedPhone, role: role || "customer" },
         emailRedirectTo: "http://localhost:3000/auth/verify-email",
       },
     });
@@ -82,7 +104,7 @@ export const signUp = async (req: Request, res: Response) => {
       `INSERT INTO users (email, password_hash, name, phone_number, role)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING user_id, email, name, phone_number, role, created_at, updated_at`,
-      [email, passwordHash, name, phone_number, role || "customer"]
+      [trimmedEmail, passwordHash, trimmedName, trimmedPhone, role || "customer"]
     );
 
     // 4. Return Supabase JWT token if session is available (email confirmation might be disabled)
@@ -128,10 +150,25 @@ export const signUp = async (req: Request, res: Response) => {
 export const signIn = async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
+  // Validate email
+  const emailValidation = validateEmail(email);
+  if (!emailValidation.valid) {
+    return res.status(400).json({
+      error: emailValidation.error
+    });
+  }
+
+  // Validate password presence and type
+  if (!password || typeof password !== 'string') {
+    return res.status(400).json({
+      error: "Password is required and must be a string"
+    });
+  }
+
   try {
     // 1. Validate Supabase login
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: email.trim(),
       password,
     });
 
@@ -140,11 +177,11 @@ export const signIn = async (req: Request, res: Response) => {
     // 2. Get user info from database (excluding password_hash)
     let user;
     try {
-      const result = await dbQuery(
-        `SELECT user_id, email, name, phone_number, role, created_at, updated_at 
-         FROM users WHERE email = $1 LIMIT 1`,
-        [email]
-      );
+    const result = await dbQuery(
+      `SELECT user_id, email, name, phone_number, role, created_at, updated_at 
+       FROM users WHERE email = $1 LIMIT 1`,
+      [email.trim()]
+    );
 
       if (result.rows.length === 0) {
         // User exists in Supabase but not in PostgreSQL - return error
@@ -156,7 +193,7 @@ export const signIn = async (req: Request, res: Response) => {
       
       user = result.rows[0];
     } catch (dbError: any) {
-      console.error('Database query error:', dbError.message);
+      console.error('Database query error:', dbError?.message || "Unknown error");
       return res.status(500).json({ 
         error: "Database error", 
         details: dbError.message || "Failed to retrieve user information" 
@@ -178,7 +215,7 @@ export const signIn = async (req: Request, res: Response) => {
       user,
     });
   } catch (err: any) {
-    console.error('Signin error:', err);
+    console.error('Signin error:', err?.message || "Unknown error");
     res.status(500).json({ 
       error: "Login failed", 
       details: err?.message || "An error occurred during login" 
@@ -217,8 +254,16 @@ export const signInWithGoogle = async (req: Request, res: Response) => {
 export const forgotPassword = async (req: Request, res: Response) => {
   const { email } = req.body;
 
+  // Validate email
+  const emailValidation = validateEmail(email);
+  if (!emailValidation.valid) {
+    return res.status(400).json({
+      error: emailValidation.error
+    });
+  }
+
   try {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo: "http://localhost:3000/auth/reset-password",
     });
 
@@ -235,6 +280,33 @@ export const forgotPassword = async (req: Request, res: Response) => {
 
 export const resetPassword = async (req: Request, res: Response) => {
   const { access_token, new_password, email } = req.body;
+
+  // Validate access token
+  if (!access_token || typeof access_token !== 'string') {
+    return res.status(400).json({
+      error: "Access token is required and must be a string"
+    });
+  }
+
+  // Validate new password
+  const passwordValidation = validatePassword(new_password);
+  if (!passwordValidation.valid) {
+    return res.status(400).json({
+      error: passwordValidation.error
+    });
+  }
+
+  // Validate email if provided
+  let trimmedEmail: string | null = null;
+  if (email) {
+    const emailValidation = validateEmail(email);
+    if (!emailValidation.valid) {
+      return res.status(400).json({
+        error: emailValidation.error
+      });
+    }
+    trimmedEmail = email.trim();
+  }
 
   try {
     // 1. Update password in Supabase Auth
@@ -254,12 +326,12 @@ export const resetPassword = async (req: Request, res: Response) => {
     const passwordHash = await bcrypt.hash(new_password, salt);
 
     // 3. Update password hash in PostgreSQL database
-    if (email) {
+    if (trimmedEmail) {
       await pool.query(
         `UPDATE users 
          SET password_hash = $1, updated_at = NOW() 
          WHERE email = $2`,
-        [passwordHash, email]
+        [passwordHash, trimmedEmail]
       );
     }
 
@@ -276,8 +348,10 @@ export const resetPassword = async (req: Request, res: Response) => {
 export const refreshToken = async (req: Request, res: Response) => {
   const { refresh_token } = req.body;
 
-  if (!refresh_token) {
-    return res.status(400).json({ error: "Refresh token is required" });
+  if (!refresh_token || typeof refresh_token !== 'string') {
+    return res.status(400).json({ 
+      error: "Refresh token is required and must be a string" 
+    });
   }
 
   try {
