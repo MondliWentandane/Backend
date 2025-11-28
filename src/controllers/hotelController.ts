@@ -2,11 +2,65 @@ import { Request, Response } from "express";
 import pool from "../config/database";
 import { Hotels } from "../types/hotel.types";
 import { DEFAULT_CURRENCY, addCurrencyInfo } from "../utils/currency";
+import { 
+  validatePositiveInteger, 
+  validatePaginationParams,
+  validateStringLength,
+  validatePositiveNumber 
+} from "../utils/validation";
+import { checkHotelAccess } from "../middleware/userMiddleware";
+import fs from "fs";
+import path from "path";
 
 // GET ALL HOTELS (Public - with optional search/filter)
+// Branch admins only see their assigned hotels
 export const getAllHotels = async (req: Request, res: Response) => {
   try {
     const { city, country, minRating, maxRating, search, limit, offset } = req.query;
+    const user = (req as any).user; // May be undefined for public access
+
+    // Validate pagination params
+    const paginationValidation = validatePaginationParams(limit, offset);
+    if (!paginationValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: paginationValidation.error
+      });
+    }
+
+    // Validate minRating if provided
+    if (minRating !== undefined) {
+      const minRatingValidation = validatePositiveInteger(minRating, "Minimum rating");
+      if (!minRatingValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: minRatingValidation.error
+        });
+      }
+      if (minRatingValidation.parsed! < 1 || minRatingValidation.parsed! > 5) {
+        return res.status(400).json({
+          success: false,
+          error: "Minimum rating must be between 1 and 5"
+        });
+      }
+    }
+
+    // Validate maxRating if provided
+    if (maxRating !== undefined) {
+      const maxRatingValidation = validatePositiveInteger(maxRating, "Maximum rating");
+      if (!maxRatingValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: maxRatingValidation.error
+        });
+      }
+      if (maxRatingValidation.parsed! < 1 || maxRatingValidation.parsed! > 5) {
+        return res.status(400).json({
+          success: false,
+          error: "Maximum rating must be between 1 and 5"
+        });
+      }
+    }
 
     let query = `
       SELECT 
@@ -37,6 +91,27 @@ export const getAllHotels = async (req: Request, res: Response) => {
     const params: any[] = [];
     let paramCount = 1;
 
+    // Filter by hotel assignment for branch admins
+    if (user && user.role === "branch_admin") {
+      if (!user.assigned_hotel_ids || user.assigned_hotel_ids.length === 0) {
+        // Branch admin with no hotels assigned - return empty result
+        return res.json({
+          success: true,
+          data: [],
+          message: "No hotels assigned to your account. Please contact a super admin.",
+          pagination: {
+            total: 0,
+            limit: paginationValidation.limitValue!,
+            offset: paginationValidation.offsetValue!,
+            hasMore: false
+          }
+        });
+      }
+      conditions.push(`h.hotel_id = ANY($${paramCount}::int[])`);
+      params.push(user.assigned_hotel_ids);
+      paramCount++;
+    }
+
     // Search by hotel name or address
     if (search) {
       conditions.push(`(h.hotel_name ILIKE $${paramCount} OR h.address ILIKE $${paramCount})`);
@@ -59,16 +134,18 @@ export const getAllHotels = async (req: Request, res: Response) => {
     }
 
     // Filter by minimum star rating
-    if (minRating) {
+    if (minRating !== undefined) {
+      const minRatingValidation = validatePositiveInteger(minRating, "Minimum rating");
       conditions.push(`h.star_rating >= $${paramCount}`);
-      params.push(parseInt(minRating as string));
+      params.push(minRatingValidation.parsed!);
       paramCount++;
     }
 
     // Filter by maximum star rating
-    if (maxRating) {
+    if (maxRating !== undefined) {
+      const maxRatingValidation = validatePositiveInteger(maxRating, "Maximum rating");
       conditions.push(`h.star_rating <= $${paramCount}`);
-      params.push(parseInt(maxRating as string));
+      params.push(maxRatingValidation.parsed!);
       paramCount++;
     }
 
@@ -79,8 +156,8 @@ export const getAllHotels = async (req: Request, res: Response) => {
     query += ` GROUP BY h.hotel_id`;
 
     // Add pagination
-    const limitValue = limit ? parseInt(limit as string) : 20;
-    const offsetValue = offset ? parseInt(offset as string) : 0;
+    const limitValue = paginationValidation.limitValue!;
+    const offsetValue = paginationValidation.offsetValue!;
 
     query += ` ORDER BY h.created_at DESC LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
     params.push(limitValue, offsetValue);
@@ -108,7 +185,7 @@ export const getAllHotels = async (req: Request, res: Response) => {
       },
     });
   } catch (err: any) {
-    console.error("Error fetching hotels:", err);
+    console.error("Error fetching hotels:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to fetch hotels",
@@ -121,6 +198,15 @@ export const getAllHotels = async (req: Request, res: Response) => {
 export const getHotelById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+
+    // Validate hotel ID
+    const hotelIdValidation = validatePositiveInteger(id, "Hotel ID");
+    if (!hotelIdValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: hotelIdValidation.error
+      });
+    }
 
     // Get hotel with photos
     const hotelQuery = `
@@ -150,7 +236,7 @@ export const getHotelById = async (req: Request, res: Response) => {
       GROUP BY h.hotel_id, h.hotel_name, h.address, h.city, h.country, h.price_range, h.star_rating, h.amenities, h.created_at, h.updated_at
     `;
 
-    const hotelResult = await pool.query(hotelQuery, [id]);
+    const hotelResult = await pool.query(hotelQuery, [hotelIdValidation.parsed!]);
 
     if (hotelResult.rows.length === 0) {
       return res.status(404).json({
@@ -170,7 +256,7 @@ export const getHotelById = async (req: Request, res: Response) => {
       WHERE hotel_id = $1
     `;
 
-    const roomsResult = await pool.query(roomsQuery, [id]);
+    const roomsResult = await pool.query(roomsQuery, [hotelIdValidation.parsed!]);
 
     // Get average rating from reviews
     const reviewsQuery = `
@@ -181,7 +267,7 @@ export const getHotelById = async (req: Request, res: Response) => {
       WHERE hotel_id = $1
     `;
 
-    const reviewsResult = await pool.query(reviewsQuery, [id]);
+    const reviewsResult = await pool.query(reviewsQuery, [hotelIdValidation.parsed!]);
 
     const minPrice = parseFloat(roomsResult.rows[0].min_price || "0");
     const maxPrice = parseFloat(roomsResult.rows[0].max_price || "0");
@@ -208,7 +294,7 @@ export const getHotelById = async (req: Request, res: Response) => {
       currency: DEFAULT_CURRENCY,
     });
   } catch (err: any) {
-    console.error("Error fetching hotel:", err);
+    console.error("Error fetching hotel:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to fetch hotel",
@@ -217,25 +303,76 @@ export const getHotelById = async (req: Request, res: Response) => {
   }
 };
 
-// CREATE HOTEL (Admin only)
+// CREATE HOTEL (Super Admin only, or Branch Admin creates for their assigned hotel)
 export const createHotel = async (req: Request, res: Response) => {
   try {
+    const user = (req as any).user;
     const { hotel_name, address, city, country, price_range, star_rating, amenities } = req.body;
 
-    // Validation
-    if (!hotel_name || !address || !city || !country || !price_range) {
+    // Only super admin can create hotels (branch admins cannot create new hotels)
+    if (user.role !== "super_admin") {
+      return res.status(403).json({
+        success: false,
+        error: "Access Denied: Only Super Admin can create hotels"
+      });
+    }
+
+    // Validate required fields
+    const hotelNameValidation = validateStringLength(hotel_name, "Hotel name", 1, 255);
+    if (!hotelNameValidation.valid) {
       return res.status(400).json({
         success: false,
-        error: "Missing required fields: hotel_name, address, city, country, price_range",
+        error: hotelNameValidation.error
+      });
+    }
+
+    const addressValidation = validateStringLength(address, "Address", 1, 255);
+    if (!addressValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: addressValidation.error
+      });
+    }
+
+    const cityValidation = validateStringLength(city, "City", 1, 100);
+    if (!cityValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: cityValidation.error
+      });
+    }
+
+    const countryValidation = validateStringLength(country, "Country", 1, 100);
+    if (!countryValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: countryValidation.error
+      });
+    }
+
+    const priceRangeValidation = validateStringLength(price_range, "Price range", 1, 100);
+    if (!priceRangeValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: priceRangeValidation.error
       });
     }
 
     // Validate star rating if provided
-    if (star_rating && (star_rating < 1 || star_rating > 5)) {
-      return res.status(400).json({
-        success: false,
-        error: "Star rating must be between 1 and 5",
-      });
+    if (star_rating !== undefined && star_rating !== null) {
+      const starRatingValidation = validatePositiveInteger(star_rating, "Star rating");
+      if (!starRatingValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: starRatingValidation.error
+        });
+      }
+      if (starRatingValidation.parsed! < 1 || starRatingValidation.parsed! > 5) {
+        return res.status(400).json({
+          success: false,
+          error: "Star rating must be between 1 and 5",
+        });
+      }
     }
 
     // Insert hotel
@@ -248,12 +385,12 @@ export const createHotel = async (req: Request, res: Response) => {
     const amenitiesArray = Array.isArray(amenities) ? amenities : amenities ? [amenities] : [];
 
     const result = await pool.query(insertQuery, [
-      hotel_name,
-      address,
-      city,
-      country,
-      price_range,
-      star_rating || null,
+      hotelNameValidation.trimmed!,
+      addressValidation.trimmed!,
+      cityValidation.trimmed!,
+      countryValidation.trimmed!,
+      priceRangeValidation.trimmed!,
+      star_rating !== undefined && star_rating !== null ? validatePositiveInteger(star_rating, "Star rating").parsed! : null,
       amenitiesArray,
     ]);
 
@@ -263,7 +400,7 @@ export const createHotel = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error creating hotel:", err);
+    console.error("Error creating hotel:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to create hotel",
@@ -272,15 +409,25 @@ export const createHotel = async (req: Request, res: Response) => {
   }
 };
 
-// UPDATE HOTEL (Admin only)
+// UPDATE HOTEL (Admin only - with hotel access check)
 export const updateHotel = async (req: Request, res: Response) => {
   try {
+    const user = (req as any).user;
     const { id } = req.params;
     const { hotel_name, address, city, country, price_range, star_rating, amenities } = req.body;
 
+    // Validate hotel ID
+    const hotelIdValidation = validatePositiveInteger(id, "Hotel ID");
+    if (!hotelIdValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: hotelIdValidation.error
+      });
+    }
+
     // Check if hotel exists
     const checkQuery = "SELECT * FROM Hotels WHERE hotel_id = $1";
-    const checkResult = await pool.query(checkQuery, [id]);
+    const checkResult = await pool.query(checkQuery, [hotelIdValidation.parsed!]);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({
@@ -289,12 +436,81 @@ export const updateHotel = async (req: Request, res: Response) => {
       });
     }
 
-    // Validate star rating if provided
-    if (star_rating !== undefined && (star_rating < 1 || star_rating > 5)) {
-      return res.status(400).json({
+    // Check hotel access (branch admin must have access to this hotel)
+    const hasAccess = await checkHotelAccess(user.user_id, user.role, hotelIdValidation.parsed!);
+    if (!hasAccess) {
+      return res.status(403).json({
         success: false,
-        error: "Star rating must be between 1 and 5",
+        error: "Access Denied: You do not have access to this hotel"
       });
+    }
+
+    // Validate star rating if provided
+    if (star_rating !== undefined && star_rating !== null) {
+      const starRatingValidation = validatePositiveInteger(star_rating, "Star rating");
+      if (!starRatingValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: starRatingValidation.error
+        });
+      }
+      if (starRatingValidation.parsed! < 1 || starRatingValidation.parsed! > 5) {
+        return res.status(400).json({
+          success: false,
+          error: "Star rating must be between 1 and 5",
+        });
+      }
+    }
+
+    // Validate string lengths if provided
+    if (hotel_name !== undefined) {
+      const hotelNameValidation = validateStringLength(hotel_name, "Hotel name", 1, 255);
+      if (!hotelNameValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: hotelNameValidation.error
+        });
+      }
+    }
+
+    if (address !== undefined) {
+      const addressValidation = validateStringLength(address, "Address", 1, 255);
+      if (!addressValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: addressValidation.error
+        });
+      }
+    }
+
+    if (city !== undefined) {
+      const cityValidation = validateStringLength(city, "City", 1, 100);
+      if (!cityValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: cityValidation.error
+        });
+      }
+    }
+
+    if (country !== undefined) {
+      const countryValidation = validateStringLength(country, "Country", 1, 100);
+      if (!countryValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: countryValidation.error
+        });
+      }
+    }
+
+    if (price_range !== undefined) {
+      const priceRangeValidation = validateStringLength(price_range, "Price range", 1, 100);
+      if (!priceRangeValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: priceRangeValidation.error
+        });
+      }
     }
 
     // Build update query dynamically
@@ -303,28 +519,34 @@ export const updateHotel = async (req: Request, res: Response) => {
     let paramCount = 1;
 
     if (hotel_name !== undefined) {
+      const hotelNameValidation = validateStringLength(hotel_name, "Hotel name", 1, 255);
       updates.push(`hotel_name = $${paramCount++}`);
-      params.push(hotel_name);
+      params.push(hotelNameValidation.trimmed!);
     }
     if (address !== undefined) {
+      const addressValidation = validateStringLength(address, "Address", 1, 255);
       updates.push(`address = $${paramCount++}`);
-      params.push(address);
+      params.push(addressValidation.trimmed!);
     }
     if (city !== undefined) {
+      const cityValidation = validateStringLength(city, "City", 1, 100);
       updates.push(`city = $${paramCount++}`);
-      params.push(city);
+      params.push(cityValidation.trimmed!);
     }
     if (country !== undefined) {
+      const countryValidation = validateStringLength(country, "Country", 1, 100);
       updates.push(`country = $${paramCount++}`);
-      params.push(country);
+      params.push(countryValidation.trimmed!);
     }
     if (price_range !== undefined) {
+      const priceRangeValidation = validateStringLength(price_range, "Price range", 1, 100);
       updates.push(`price_range = $${paramCount++}`);
-      params.push(price_range);
+      params.push(priceRangeValidation.trimmed!);
     }
-    if (star_rating !== undefined) {
+    if (star_rating !== undefined && star_rating !== null) {
+      const starRatingValidation = validatePositiveInteger(star_rating, "Star rating");
       updates.push(`star_rating = $${paramCount++}`);
-      params.push(star_rating);
+      params.push(starRatingValidation.parsed!);
     }
     if (amenities !== undefined) {
       updates.push(`amenities = $${paramCount++}`);
@@ -340,7 +562,7 @@ export const updateHotel = async (req: Request, res: Response) => {
     }
 
     updates.push(`updated_at = NOW()`);
-    params.push(id);
+    params.push(hotelIdValidation.parsed!);
 
     const updateQuery = `
       UPDATE Hotels
@@ -357,7 +579,7 @@ export const updateHotel = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error updating hotel:", err);
+    console.error("Error updating hotel:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to update hotel",
@@ -366,14 +588,32 @@ export const updateHotel = async (req: Request, res: Response) => {
   }
 };
 
-// DELETE HOTEL (Admin only)
+// DELETE HOTEL (Super Admin only)
 export const deleteHotel = async (req: Request, res: Response) => {
   try {
+    const user = (req as any).user;
     const { id } = req.params;
+
+    // Only super admin can delete hotels
+    if (user.role !== "super_admin") {
+      return res.status(403).json({
+        success: false,
+        error: "Access Denied: Only Super Admin can delete hotels"
+      });
+    }
+
+    // Validate hotel ID
+    const hotelIdValidation = validatePositiveInteger(id, "Hotel ID");
+    if (!hotelIdValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: hotelIdValidation.error
+      });
+    }
 
     // Check if hotel exists
     const checkQuery = "SELECT * FROM Hotels WHERE hotel_id = $1";
-    const checkResult = await pool.query(checkQuery, [id]);
+    const checkResult = await pool.query(checkQuery, [hotelIdValidation.parsed!]);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({
@@ -384,7 +624,7 @@ export const deleteHotel = async (req: Request, res: Response) => {
 
     // Delete hotel (cascade will delete related rooms, photos, bookings, etc.)
     const deleteQuery = "DELETE FROM Hotels WHERE hotel_id = $1 RETURNING *";
-    const result = await pool.query(deleteQuery, [id]);
+    const result = await pool.query(deleteQuery, [hotelIdValidation.parsed!]);
 
     res.json({
       success: true,
@@ -392,7 +632,7 @@ export const deleteHotel = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error deleting hotel:", err);
+    console.error("Error deleting hotel:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to delete hotel",
@@ -401,28 +641,71 @@ export const deleteHotel = async (req: Request, res: Response) => {
   }
 };
 
-// ADD HOTEL PHOTO (Admin only)
+// ADD HOTEL PHOTO (Admin only) - Supports file upload or URL
 export const addHotelPhoto = async (req: Request, res: Response) => {
   try {
+    const user = (req as any).user;
     const { id } = req.params;
     const { photo_url } = req.body;
+    const file = (req as any).file;
 
-    if (!photo_url) {
+    // Validate hotel ID
+    const hotelIdValidation = validatePositiveInteger(id, "Hotel ID");
+    if (!hotelIdValidation.valid) {
       return res.status(400).json({
         success: false,
-        error: "photo_url is required",
+        error: hotelIdValidation.error
+      });
+    }
+
+    // Check hotel access (pass cached assigned_hotel_ids for performance)
+    const hasAccess = await checkHotelAccess(user.user_id, user.role, hotelIdValidation.parsed!, user.assigned_hotel_ids);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        error: "Access Denied: You do not have access to this hotel"
       });
     }
 
     // Check if hotel exists
     const checkQuery = "SELECT * FROM Hotels WHERE hotel_id = $1";
-    const checkResult = await pool.query(checkQuery, [id]);
+    const checkResult = await pool.query(checkQuery, [hotelIdValidation.parsed!]);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
         error: "Hotel not found",
       });
+    }
+
+    let finalPhotoUrl: string;
+
+    // Check if file was uploaded
+    if (file) {
+      // Use uploaded file path
+      finalPhotoUrl = `/uploads/${file.filename}`;
+    } else if (photo_url) {
+      // Use provided URL
+      finalPhotoUrl = photo_url;
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: "Either a photo file or photo_url is required",
+      });
+    }
+
+    const parsedHotelId = hotelIdValidation.parsed!;
+
+    // Validate URL format if provided
+    if (photo_url && !file) {
+      try {
+        new URL(photo_url);
+      } catch {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid photo_url format. Must be a valid URL.",
+        });
+      }
     }
 
     // Insert photo
@@ -432,15 +715,16 @@ export const addHotelPhoto = async (req: Request, res: Response) => {
       RETURNING *
     `;
 
-    const result = await pool.query(insertQuery, [id, photo_url]);
+    const result = await pool.query(insertQuery, [parsedHotelId, finalPhotoUrl]);
 
     res.status(201).json({
       success: true,
       message: "Photo added successfully",
       data: result.rows[0],
+      upload_method: file ? "file_upload" : "url",
     });
   } catch (err: any) {
-    console.error("Error adding hotel photo:", err);
+    console.error("Error adding hotel photo:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to add photo",
@@ -452,14 +736,33 @@ export const addHotelPhoto = async (req: Request, res: Response) => {
 // DELETE HOTEL PHOTO (Admin only)
 export const deleteHotelPhoto = async (req: Request, res: Response) => {
   try {
+    const user = (req as any).user;
     const { id, photoId } = req.params;
+
+    // Validate hotel ID
+    const hotelIdValidation = validatePositiveInteger(id, "Hotel ID");
+    if (!hotelIdValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: hotelIdValidation.error
+      });
+    }
+
+    // Check hotel access (pass cached assigned_hotel_ids for performance)
+    const hasAccess = await checkHotelAccess(user.user_id, user.role, hotelIdValidation.parsed!, user.assigned_hotel_ids);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        error: "Access Denied: You do not have access to this hotel"
+      });
+    }
 
     // Check if photo exists
     const checkQuery = `
       SELECT * FROM HotelPhotos 
       WHERE photo_id = $1 AND hotel_id = $2
     `;
-    const checkResult = await pool.query(checkQuery, [photoId, id]);
+    const checkResult = await pool.query(checkQuery, [photoId, hotelIdValidation.parsed!]);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({
@@ -468,9 +771,25 @@ export const deleteHotelPhoto = async (req: Request, res: Response) => {
       });
     }
 
-    // Delete photo
+    const photo = checkResult.rows[0];
+    const photoUrl = photo.photo_url;
+
+    // Delete photo from database
     const deleteQuery = "DELETE FROM HotelPhotos WHERE photo_id = $1 RETURNING *";
     const result = await pool.query(deleteQuery, [photoId]);
+
+    // Delete file from disk if it's a local upload (starts with /uploads/)
+    if (photoUrl && photoUrl.startsWith('/uploads/')) {
+      try {
+        const filePath = path.join(process.cwd(), 'public', photoUrl);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (fileError: any) {
+        // Log error but don't fail the request if file deletion fails
+        console.warn("Failed to delete photo file from disk:", fileError?.message || "Unknown error");
+      }
+    }
 
     res.json({
       success: true,
@@ -478,7 +797,7 @@ export const deleteHotelPhoto = async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (err: any) {
-    console.error("Error deleting hotel photo:", err);
+    console.error("Error deleting hotel photo:", err?.message || "Unknown error");
     res.status(500).json({
       success: false,
       error: "Failed to delete photo",
