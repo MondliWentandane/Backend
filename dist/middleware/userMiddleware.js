@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.requireCustomer = exports.requireAdmin = exports.verifyAuth = void 0;
+exports.requireCustomer = exports.requireHotelAccess = exports.checkHotelAccess = exports.requireBranchAdmin = exports.requireSuperAdmin = exports.requireAdmin = exports.verifyAuth = void 0;
 const supabase_1 = require("../config/supabase");
 const database_1 = __importDefault(require("../config/database"));
 //Verifying Auth Token Middleware - Validates Supabase JWT
@@ -19,14 +19,41 @@ const verifyAuth = async (req, res, next) => {
         if (error || !supabaseUser) {
             return res.status(403).json({ message: "Invalid or expired token" });
         }
-        // 2. Get full user info from PostgreSQL (including role)
-        const result = await database_1.default.query(`SELECT user_id, email, name, phone_number, role, created_at, updated_at 
-             FROM users WHERE email = $1 LIMIT 1`, [supabaseUser.email]);
+        // 2. Get full user info from PostgreSQL (including role and hotel assignments)
+        const result = await database_1.default.query(`SELECT 
+                u.user_id, 
+                u.email, 
+                u.name, 
+                u.phone_number, 
+                u.role, 
+                u.created_at, 
+                u.updated_at,
+                COALESCE(
+                    JSON_AGG(
+                        JSON_BUILD_OBJECT(
+                            'hotel_id', uha.hotel_id,
+                            'hotel_name', h.hotel_name
+                        )
+                    ) FILTER (WHERE uha.hotel_id IS NOT NULL),
+                    '[]'::json
+                ) as assigned_hotels
+             FROM users u
+             LEFT JOIN UserHotelAssignments uha ON u.user_id = uha.user_id
+             LEFT JOIN Hotels h ON uha.hotel_id = h.hotel_id
+             WHERE u.email = $1 
+             GROUP BY u.user_id, u.email, u.name, u.phone_number, u.role, u.created_at, u.updated_at
+             LIMIT 1`, [supabaseUser.email]);
         if (result.rows.length === 0) {
             return res.status(404).json({ message: "User not found in database" });
         }
         const dbUser = result.rows[0];
-        // 3. Attach user info to request (combining Supabase and DB data)
+        // 3. Extract assigned hotel IDs for easy access
+        const assignedHotelIds = dbUser.assigned_hotels
+            ? (Array.isArray(dbUser.assigned_hotels)
+                ? dbUser.assigned_hotels.map((h) => h.hotel_id)
+                : [])
+            : [];
+        // 4. Attach user info to request (combining Supabase and DB data)
         req.user = {
             user_id: dbUser.user_id,
             email: dbUser.email,
@@ -34,23 +61,111 @@ const verifyAuth = async (req, res, next) => {
             phone_number: dbUser.phone_number,
             role: dbUser.role,
             supabase_id: supabaseUser.id, // Supabase UUID
+            assigned_hotel_ids: assignedHotelIds, // Array of hotel IDs for branch admins
         };
         next();
     }
     catch (error) {
+        console.error("Error in verifyAuth middleware:", error?.message || "Unknown error");
         return res.status(403).json({ message: "Invalid or expired token" });
     }
 };
 exports.verifyAuth = verifyAuth;
-// Check user Role (Admin only)
+// Check user Role (Admin only - Super Admin or Branch Admin)
 const requireAdmin = (req, res, next) => {
     const user = req.user;
-    if (!user || user.role !== "admin") {
-        return res.status(403).json({ message: "Access Denied:Admins only" });
+    if (!user || (user.role !== "admin" && user.role !== "super_admin" && user.role !== "branch_admin")) {
+        return res.status(403).json({ message: "Access Denied: Admins only" });
     }
     next();
 };
 exports.requireAdmin = requireAdmin;
+// Check user Role (Super Admin only)
+const requireSuperAdmin = (req, res, next) => {
+    const user = req.user;
+    if (!user || user.role !== "super_admin") {
+        return res.status(403).json({ message: "Access Denied: Super Admin only" });
+    }
+    next();
+};
+exports.requireSuperAdmin = requireSuperAdmin;
+// Check user Role (Branch Admin only)
+const requireBranchAdmin = (req, res, next) => {
+    const user = req.user;
+    if (!user || user.role !== "branch_admin") {
+        return res.status(403).json({ message: "Access Denied: Branch Admin only" });
+    }
+    next();
+};
+exports.requireBranchAdmin = requireBranchAdmin;
+// Helper function to check if user has access to a specific hotel
+// Optionally accepts assignedHotelIds array to avoid database query if available
+const checkHotelAccess = async (userId, userRole, hotelId, assignedHotelIds) => {
+    try {
+        // Super admin has access to all hotels
+        if (userRole === "super_admin") {
+            return true;
+        }
+        // Regular admin (legacy) has access to all hotels
+        if (userRole === "admin") {
+            return true;
+        }
+        // Branch admin needs to check assignment
+        if (userRole === "branch_admin") {
+            // Use cached assigned_hotel_ids if available (from verifyAuth middleware)
+            if (assignedHotelIds && Array.isArray(assignedHotelIds)) {
+                return assignedHotelIds.includes(hotelId);
+            }
+            // Fallback to database query if cache not available
+            const result = await database_1.default.query(`SELECT * FROM UserHotelAssignments 
+                 WHERE user_id = $1 AND hotel_id = $2`, [userId, hotelId]);
+            return result.rows.length > 0;
+        }
+        // Customers and others have no admin access
+        return false;
+    }
+    catch (error) {
+        console.error("Error checking hotel access:", error?.message || "Unknown error");
+        return false;
+    }
+};
+exports.checkHotelAccess = checkHotelAccess;
+// Middleware to check hotel access from request params
+const requireHotelAccess = async (req, res, next) => {
+    try {
+        const user = req.user;
+        const hotelId = req.params.hotelId || req.params.id || req.body.hotel_id;
+        if (!hotelId) {
+            return res.status(400).json({
+                success: false,
+                error: "Hotel ID is required"
+            });
+        }
+        const hotelIdNum = parseInt(hotelId);
+        if (isNaN(hotelIdNum)) {
+            return res.status(400).json({
+                success: false,
+                error: "Invalid hotel ID"
+            });
+        }
+        const hasAccess = await (0, exports.checkHotelAccess)(user.user_id, user.role, hotelIdNum, user.assigned_hotel_ids);
+        if (!hasAccess) {
+            return res.status(403).json({
+                success: false,
+                error: "Access Denied: You do not have access to this hotel"
+            });
+        }
+        next();
+    }
+    catch (error) {
+        return res.status(500).json({
+            success: false,
+            error: "Error checking hotel access",
+            details: error.message
+        });
+    }
+};
+exports.requireHotelAccess = requireHotelAccess;
 // Check user Customer role 
 const requireCustomer = (req, res, next) => {
     const user = req.user;

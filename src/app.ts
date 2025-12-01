@@ -34,7 +34,18 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+
+// FIX: Remove the problematic line or fix it
+// app.options('*', cors(corsOptions)); // THIS CAUSES THE ERROR
+
+// BETTER: Handle OPTIONS requests manually
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.sendStatus(200);
+});
 
 // Body parsing middleware
 app.use(express.json());
@@ -52,8 +63,8 @@ app.get('/health', (req, res) => {
   });
 });
 
-// 404 handler
-app.use('*', (req, res) => {
+// 404 handler - FIXED: Use a function, not '*'
+app.use((req, res) => {
   res.status(404).json({ message: 'Route not found' });
 });
 
