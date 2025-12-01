@@ -23,6 +23,8 @@ app.use(helmet()); // Set various HTTP headers for security
 const allowedOrigins = [
   process.env.CUSTOMER_FRONTEND_URL,
   process.env.ADMIN_FRONTEND_URL,
+  // Fallback to localhost for development
+  'http://localhost:5173',
 ].filter(Boolean); // Remove any undefined values
 
 app.use(cors({
@@ -44,7 +46,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
 }));
 
 // Body parsing middleware
@@ -54,8 +56,17 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' })); // Support URL-e
 // Serve static files from public directory
 app.use(express.static("public"));
 
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).json({ 
+    status: 'OK', 
+    message: 'Server is running',
+    timestamp: new Date().toISOString()
+  });
+});
 
-app.use("/api/auth",authRoutes)
+// API Routes
+app.use("/api/auth", authRoutes)
 app.use("/api/hotels", hotelRoutes)
 app.use("/api/rooms", roomRoutes)
 app.use("/api/bookings", bookingRoutes)
@@ -68,5 +79,9 @@ app.use("/api/receipts", receiptRoutes)
 app.use("/api/admin", adminRoutes)
 app.use("/api", testRoutes)
 
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ message: 'Route not found' });
+});
 
 export default app;
