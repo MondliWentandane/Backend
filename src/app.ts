@@ -23,24 +23,26 @@ app.use(helmet()); // Set various HTTP headers for security
 const allowedOrigins = [
   process.env.CUSTOMER_FRONTEND_URL,
   process.env.ADMIN_FRONTEND_URL,
-  // Fallback to localhost for development
-  'http://localhost:5173',
-].filter(Boolean); // Remove any undefined values
+
+  // Your real production frontend
+  "https://admin-app-gg85.vercel.app",
+
+  // Local development fallback
+  "http://localhost:5173",
+].filter(Boolean);
 
 app.use(cors({
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
+    // Allow Postman / Thunderclient (no origin)
     if (!origin) return callback(null, true);
-    
-    // Check if origin is in allowed list
+
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      // In development, allow all origins
-      if (process.env.NODE_ENV !== 'production') {
-        callback(null, true);
+      if (process.env.NODE_ENV !== "production") {
+        callback(null, true); // allow everything in dev
       } else {
-        callback(new Error('Not allowed by CORS'));
+        callback(new Error(`Not allowed by CORS: ${origin}`));
       }
     }
   },
@@ -48,6 +50,7 @@ app.use(cors({
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
 }));
+
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' })); // Limit JSON payload size
