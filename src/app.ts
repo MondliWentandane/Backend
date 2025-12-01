@@ -1,56 +1,60 @@
-import express from "express";
-import cors from "cors";
-import helmet from "helmet";
-
-import authRoutes from "./routes/authRoutes";
-import hotelRoutes from "./routes/hotelRoutes";
-import roomRoutes from "./routes/roomRoutes";
-import bookingRoutes from "./routes/bookingRoutes";
-import reviewRoutes from "./routes/reviewRoutes";
-import favouriteRoutes from "./routes/favouriteRoutes";
-import userRoutes from "./routes/userRoutes";
-import notificationRoutes from "./routes/notificationRoutes";
-import paypalRoutes from "./routes/paypalRoutes";
-import receiptRoutes from "./routes/receiptRoutes";
-import adminRoutes from "./routes/adminRoutes";
-import testRoutes from "./routes/testRoutes";
+import express from 'express';
+import cors from 'cors';
+import authRoutes from './routes/authRoutes';
 
 const app = express();
-//  Security Middleware
-app.use(helmet());
-//  CORS Configuration (Updated)
 
-app.use(
-  cors({
-    origin: [
-      process.env.CUSTOMER_APP_URL || "http://localhost:3001",
-      process.env.ADMIN_APP_URL || "http://localhost:3002",
+// Dynamic CORS configuration
+const corsOptions = {
+  origin: function (origin: string | undefined, callback: Function) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'https://admin-app-gg85.vercel.app',
+      'https://admin-app-lovat-psi.vercel.app',
+      'https://backend-production-4b74.up.railway.app'
+    ];
+    
+    // Also check environment variable
+    const envOrigins = process.env.CORS_ORIGINS?.split(',') || [];
+    const allAllowedOrigins = [...allowedOrigins, ...envOrigins];
+    
+    if (allAllowedOrigins.indexOf(origin) !== -1 || allAllowedOrigins.includes('*')) {
+      callback(null, true);
+    } else {
+      console.log('CORS blocked for origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+};
 
-      // Production Vercel Frontends
-      "https://your-customer-app.vercel.app",
-      "https://your-admin-app.vercel.app",
-    ],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-// -----------------------------------------
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-app.use(express.static("public"));
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
-app.use("/api/auth", authRoutes);
-app.use("/api/hotels", hotelRoutes);
-app.use("/api/rooms", roomRoutes);
-app.use("/api/bookings", bookingRoutes);
-app.use("/api/reviews", reviewRoutes);
-app.use("/api/favourites", favouriteRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/notifications", notificationRoutes);
-app.use("/api/payments", paypalRoutes);
-app.use("/api/receipts", receiptRoutes);
-app.use("/api/admin", adminRoutes);
-app.use("/api", testRoutes);
+// Body parsing middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Routes
+app.use('/auth', authRoutes);
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'OK', 
+    message: 'Server is running',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({ message: 'Route not found' });
+});
 
 export default app;
