@@ -4,48 +4,18 @@ import authRoutes from './routes/authRoutes';
 
 const app = express();
 
-// Dynamic CORS configuration
-const corsOptions = {
-  origin: function (origin: string | undefined, callback: Function) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      'http://localhost:5173',
-      'https://admin-app-gg85.vercel.app',
-      'https://admin-app-lovat-psi.vercel.app',
-      'https://backend-production-4b74.up.railway.app'
-    ];
-    
-    // Also check environment variable
-    const envOrigins = process.env.CORS_ORIGINS?.split(',') || [];
-    const allAllowedOrigins = [...allowedOrigins, ...envOrigins];
-    
-    if (allAllowedOrigins.indexOf(origin) !== -1 || allAllowedOrigins.includes('*')) {
-      callback(null, true);
-    } else {
-      console.log('CORS blocked for origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+// SIMPLER CORS configuration - REMOVE the complex function
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'https://admin-app-gg85.vercel.app',
+    'https://admin-app-lovat-psi.vercel.app',
+    'https://backend-production-4b74.up.railway.app'
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-};
-
-app.use(cors(corsOptions));
-
-// FIX: Remove the problematic line or fix it
-// app.options('*', cors(corsOptions)); // THIS CAUSES THE ERROR
-
-// BETTER: Handle OPTIONS requests manually
-app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.sendStatus(200);
-});
+}));
 
 // Body parsing middleware
 app.use(express.json());
@@ -63,7 +33,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// 404 handler - FIXED: Use a function, not '*'
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({ message: 'Route not found' });
 });
