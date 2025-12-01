@@ -57,7 +57,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' })); // Support URL-e
 app.use(express.static("public"));
 
 // Health check endpoint
-app.get("/health", (req, res) => {
+app.get("/health", (req: express.Request, res: express.Response) => {
   res.status(200).json({ 
     status: 'OK', 
     message: 'Server is running',
@@ -80,7 +80,7 @@ app.use("/api/admin", adminRoutes)
 app.use("/api", testRoutes)
 
 // 404 handler
-app.use((req, res) => {
+app.use((req: express.Request, res: express.Response) => {
   res.status(404).json({ message: 'Route not found' });
 });
 
