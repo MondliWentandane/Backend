@@ -9,6 +9,11 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "typeRoots": ["./node_modules/@types", "./types"]
-  }
+    "typeRoots": ["./node_modules/@types", "./types"],
+    "types": ["node"],
+    "lib": ["ES2020"],
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }
